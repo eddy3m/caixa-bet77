@@ -11,11 +11,14 @@ st.set_page_config(page_title="Caixa de Esportes Bet77", layout="wide", page_ico
 
 st.markdown("""
     <style>
+    /* Estilo Geral da Aplicação */
     .stApp {
         background-color: #F8FAFC !important;
         color: #1E293B !important;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
+    
+    /* Títulos compactos e modernos */
     h1 {
         font-size: 1.6rem !important;
         color: #0F172A !important;
@@ -26,11 +29,19 @@ st.markdown("""
         color: #1E3A8A !important;
         font-weight: 600 !important;
     }
+    
+    /* Linha de Agente com divisor e efeito Hover */
     .linha-agente {
         padding: 8px 12px;
         border-bottom: 1px solid #E2E8F0;
         border-radius: 6px;
+        transition: background-color 0.15s ease-in-out;
     }
+    .linha-agente:hover {
+        background-color: #F1F5F9;
+    }
+
+    /* Rótulos e Texto dos Agentes */
     .nome-agente {
         font-size: 0.92rem !important;
         font-weight: 600;
@@ -50,6 +61,8 @@ st.markdown("""
         padding-bottom: 6px;
         margin-bottom: 6px;
     }
+
+    /* Cards de Resumo */
     .card-resumo {
         background-color: #FFFFFF;
         padding: 12px 16px;
@@ -69,6 +82,8 @@ st.markdown("""
         margin-bottom: 0;
         font-size: 1.25rem !important;
     }
+
+    /* Destaques de Valores */
     .valor-negativo {
         color: #DC2626 !important;
         font-weight: 700;
@@ -79,6 +94,8 @@ st.markdown("""
         font-weight: 700;
         font-size: 0.95rem !important;
     }
+
+    /* Campos de Entrada Compactos */
     div[data-baseweb="input"] {
         background-color: #FFFFFF !important;
         border-radius: 5px !important;
@@ -87,6 +104,8 @@ st.markdown("""
     input {
         font-size: 0.9rem !important;
     }
+
+    /* Botões */
     div.stButton > button {
         border-radius: 5px !important;
         font-weight: 600 !important;
@@ -94,6 +113,8 @@ st.markdown("""
         height: 38px !important;
         width: 100% !important;
     }
+    
+    /* Abas Superioras */
     button[data-baseweb="tab"] {
         font-size: 0.9rem !important;
         font-weight: 600 !important;
@@ -172,6 +193,16 @@ def init_db():
             UNIQUE(data, utilizador)
         )
     ''')
+    conn.commit()
+
+    # MIGRAÇÃO AUTOMÁTICA DA ESTRUTURA
+    c.execute("PRAGMA table_info(fecho_caixa)")
+    colunas = [col[1] for col in c.fetchall()]
+    
+    if 'status_aceite' not in colunas:
+        c.execute("ALTER TABLE fecho_caixa ADD COLUMN status_aceite INTEGER DEFAULT 0")
+    if 'fechado_final' not in colunas:
+        c.execute("ALTER TABLE fecho_caixa ADD COLUMN fechado_final INTEGER DEFAULT 0")
     conn.commit()
 
     c.execute("SELECT COUNT(*) FROM supervisores")
@@ -309,10 +340,10 @@ def executar_fecho_final_dia(data_str, supervisor_id=None):
     conn.commit()
     conn.close()
 
-def obter_dividas_acumuladas(data_str=None, supervisor_id=None):
+def obter_extrato_dividas_e_pagos(data_str=None, supervisor_id=None):
     conn = sqlite3.connect(DB_FILE)
     params = []
-    where_clauses = ["f.saldo < 0"]
+    where_clauses = ["f.valor_feito > 0"]
     
     if data_str:
         where_clauses.append("f.data = ?")
@@ -331,7 +362,7 @@ def obter_dividas_acumuladas(data_str=None, supervisor_id=None):
             f.utilizador as codigo,
             f.valor_feito as feito,
             f.valor_entregue as entregue,
-            f.saldo as divida,
+            f.saldo as saldo,
             f.data as data_operacao
         FROM fecho_caixa f
         JOIN agentes a ON f.utilizador = a.utilizador
@@ -429,10 +460,10 @@ tab_dividas, tab_operacao, tab_gestao = st.tabs([
 ])
 
 # ------------------------------------------
-# ABA 1: VISÃO GERAL DE DÍVIDAS
+# ABA 1: VISÃO GERAL DE DÍVIDAS E PAGOS
 # ------------------------------------------
 with tab_dividas:
-    st.subheader("🔴 Painel Geral de Agentes com Dívidas")
+    st.subheader("📊 Extrato Diário de Dívidas e Pagamentos")
     
     col_d_data, col_d_sup = st.columns([1, 2])
     
@@ -449,39 +480,72 @@ with tab_dividas:
         sup_div_nome = st.selectbox("Filtrar por Supervisor:", list(sup_map_d.keys()), key="sup_div")
         sup_div_id = sup_map_d[sup_div_nome]
 
-    df_dividas = obter_dividas_acumuladas(data_str=dt_div_str, supervisor_id=sup_div_id)
+    df_extrato = obter_extrato_dividas_e_pagos(data_str=dt_div_str, supervisor_id=sup_div_id)
 
-    if df_dividas.empty:
-        st.info(f"Nenhuma pendência registada para {data_divida.strftime('%d/%m/%Y')}.")
+    if df_extrato.empty:
+        st.info(f"Nenhum lançamento de caixa encontrado para a data {data_divida.strftime('%d/%m/%Y')}.")
     else:
-        tot_divida = df_dividas["divida"].sum()
-        qtd_devedores = len(df_dividas)
+        df_devedores = df_extrato[df_extrato["saldo"] < 0].copy()
+        df_pagos = df_extrato[df_extrato["saldo"] >= 0].copy()
+
+        tot_divida = df_devedores["saldo"].sum() if not df_devedores.empty else 0.0
+        tot_pago = df_pagos["entregue"].sum() if not df_pagos.empty else 0.0
 
         card1, card2 = st.columns(2)
         with card1:
-            st.markdown(f"<div class='card-resumo'><span>QUANTIDADE DE DEVEDORES</span><h3 style='color:#DC2626;'>{qtd_devedores} Agentes</h3></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='card-resumo'><span>QUANTIDADE DE DEVEDORES</span><h3 style='color:#DC2626;'>{len(df_devedores)} Agentes</h3></div>", unsafe_allow_html=True)
         with card2:
             st.markdown(f"<div class='card-resumo'><span>TOTAL DE DÍVIDAS PENDENTES</span><h3 style='color:#DC2626;'>{tot_divida:,.2f} MT</h3></div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        c_h1, c_h2, c_h3, c_h4, c_h5, c_h6 = st.columns([1.5, 2, 1.2, 1.2, 1.2, 1.5])
-        with c_h1: st.markdown("<div class='header-tabela'>Supervisor</div>", unsafe_allow_html=True)
-        with c_h2: st.markdown("<div class='header-tabela'>Agente</div>", unsafe_allow_html=True)
-        with c_h3: st.markdown("<div class='header-tabela'>Código</div>", unsafe_allow_html=True)
-        with c_h4: st.markdown("<div class='header-tabela'>Feito (MT)</div>", unsafe_allow_html=True)
-        with c_h5: st.markdown("<div class='header-tabela'>Entregue (MT)</div>", unsafe_allow_html=True)
-        with c_h6: st.markdown("<div class='header-tabela'>Dívida</div>", unsafe_allow_html=True)
+        # 1. TABELA DE QUEM ESTÁ A DEVER (SECCAO SUPERIOR)
+        st.markdown("### 🔴 Agentes com Dívidas Pendentes")
+        if df_devedores.empty:
+            st.success("🎉 Não existem agentes devendo nesta seleção!")
+        else:
+            c_h1, c_h2, c_h3, c_h4, c_h5, c_h6 = st.columns([1.5, 2, 1.2, 1.2, 1.2, 1.5])
+            with c_h1: st.markdown("<div class='header-tabela'>Supervisor</div>", unsafe_allow_html=True)
+            with c_h2: st.markdown("<div class='header-tabela'>Agente</div>", unsafe_allow_html=True)
+            with c_h3: st.markdown("<div class='header-tabela'>Código</div>", unsafe_allow_html=True)
+            with c_h4: st.markdown("<div class='header-tabela'>Feito (MT)</div>", unsafe_allow_html=True)
+            with c_h5: st.markdown("<div class='header-tabela'>Entregue (MT)</div>", unsafe_allow_html=True)
+            with c_h6: st.markdown("<div class='header-tabela'>Dívida</div>", unsafe_allow_html=True)
 
-        for _, row in df_dividas.iterrows():
-            c1, c2, c3, c4, c5, c6 = st.columns([1.5, 2, 1.2, 1.2, 1.2, 1.5])
-            with c1: st.markdown(f"<span style='color:#475569; font-size:0.88rem;'>{row['supervisor']}</span>", unsafe_allow_html=True)
-            with c2: st.markdown(f"<span class='nome-agente'>{row['agente_nome']}</span>", unsafe_allow_html=True)
-            with c3: st.markdown(f"<span class='codigo-agente'>{row['codigo']}</span>", unsafe_allow_html=True)
-            with c4: st.markdown(f"<span style='font-size:0.88rem;'>{row['feito']:,.2f}</span>", unsafe_allow_html=True)
-            with c5: st.markdown(f"<span style='font-size:0.88rem;'>{row['entregue']:,.2f}</span>", unsafe_allow_html=True)
-            with c6: st.markdown(f"<span class='valor-negativo'>{row['divida']:,.2f} MT</span>", unsafe_allow_html=True)
-            st.markdown("<div style='border-bottom: 1px solid #E2E8F0; margin: 4px 0;'></div>", unsafe_allow_html=True)
+            for _, row in df_devedores.iterrows():
+                c1, c2, c3, c4, c5, c6 = st.columns([1.5, 2, 1.2, 1.2, 1.2, 1.5])
+                with c1: st.markdown(f"<span style='color:#475569; font-size:0.88rem;'>{row['supervisor']}</span>", unsafe_allow_html=True)
+                with c2: st.markdown(f"<span class='nome-agente'>{row['agente_nome']}</span>", unsafe_allow_html=True)
+                with c3: st.markdown(f"<span class='codigo-agente'>{row['codigo']}</span>", unsafe_allow_html=True)
+                with c4: st.markdown(f"<span style='font-size:0.88rem;'>{row['feito']:,.2f}</span>", unsafe_allow_html=True)
+                with c5: st.markdown(f"<span style='font-size:0.88rem;'>{row['entregue']:,.2f}</span>", unsafe_allow_html=True)
+                with c6: st.markdown(f"<span class='valor-negativo'>{row['saldo']:,.2f} MT</span>", unsafe_allow_html=True)
+                st.markdown("<div style='border-bottom: 1px solid #E2E8F0; margin: 4px 0;'></div>", unsafe_allow_html=True)
+
+        st.divider()
+
+        # 2. TABELA DE QUEM JÁ PAGOU / QUITOU (SECCAO INFERIOR)
+        st.markdown("### ✅ Agentes com Contas Quitadas / Pagos")
+        if df_pagos.empty:
+            st.info("Nenhum agente quitou a conta nesta seleção ainda.")
+        else:
+            c_p1, c_p2, c_p3, c_p4, c_p5, c_p6 = st.columns([1.5, 2, 1.2, 1.2, 1.2, 1.5])
+            with c_p1: st.markdown("<div class='header-tabela'>Supervisor</div>", unsafe_allow_html=True)
+            with c_p2: st.markdown("<div class='header-tabela'>Agente</div>", unsafe_allow_html=True)
+            with c_p3: st.markdown("<div class='header-tabela'>Código</div>", unsafe_allow_html=True)
+            with c_p4: st.markdown("<div class='header-tabela'>Feito (MT)</div>", unsafe_allow_html=True)
+            with c_p5: st.markdown("<div class='header-tabela'>Entregue (MT)</div>", unsafe_allow_html=True)
+            with c_p6: st.markdown("<div class='header-tabela'>Status / Saldo</div>", unsafe_allow_html=True)
+
+            for _, row in df_pagos.iterrows():
+                c1, c2, c3, c4, c5, c6 = st.columns([1.5, 2, 1.2, 1.2, 1.2, 1.5])
+                with c1: st.markdown(f"<span style='color:#475569; font-size:0.88rem;'>{row['supervisor']}</span>", unsafe_allow_html=True)
+                with c2: st.markdown(f"<span class='nome-agente'>{row['agente_nome']}</span>", unsafe_allow_html=True)
+                with c3: st.markdown(f"<span class='codigo-agente'>{row['codigo']}</span>", unsafe_allow_html=True)
+                with c4: st.markdown(f"<span style='font-size:0.88rem;'>{row['feito']:,.2f}</span>", unsafe_allow_html=True)
+                with c5: st.markdown(f"<span style='font-size:0.88rem;'>{row['entregue']:,.2f}</span>", unsafe_allow_html=True)
+                with c6: st.markdown(f"<span class='valor-zero'>✅ 0.00 MT (Pago)</span>", unsafe_allow_html=True)
+                st.markdown("<div style='border-bottom: 1px solid #E2E8F0; margin: 4px 0;'></div>", unsafe_allow_html=True)
 
 # ------------------------------------------
 # ABA 2: OPERAÇÃO E FECHO DE CAIXA
@@ -578,7 +642,6 @@ with tab_operacao:
 
         st.divider()
 
-        # Resumos e Botão do Fecho Geral do Dia
         st.subheader(f"📊 Resumo Geral do Diário ({sup_selecionado_nome})")
         tot_saldo = tot_entregue - tot_feito
         
@@ -593,7 +656,6 @@ with tab_operacao:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # ÁREA FINAL DE ENCERRAMENTO DO DIA
         col_fecho_btn1, col_fecho_btn2, col_fecho_btn3 = st.columns([1, 2, 1])
         with col_fecho_btn2:
             if st.button("🔒 Executar Fecho Final do Dia", type="primary", use_container_width=True):
