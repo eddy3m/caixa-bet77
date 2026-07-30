@@ -433,7 +433,7 @@ tab_dividas, tab_operacao, tab_gestao = st.tabs([
 ])
 
 # ------------------------------------------
-# ABA 1: VISÃO GERAL DE DÍVIDAS (LAYOUT LIMPO)
+# ABA 1: VISÃO GERAL DE DÍVIDAS
 # ------------------------------------------
 with tab_dividas:
     st.subheader("🔴 Painel Geral de Agentes com Dívidas")
@@ -469,7 +469,6 @@ with tab_dividas:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Cabeçalho compacto
         c_h1, c_h2, c_h3, c_h4, c_h5, c_h6 = st.columns([1.5, 2, 1.2, 1.2, 1.2, 1.5])
         with c_h1: st.markdown("<div class='header-tabela'>Supervisor</div>", unsafe_allow_html=True)
         with c_h2: st.markdown("<div class='header-tabela'>Agente</div>", unsafe_allow_html=True)
@@ -478,7 +477,6 @@ with tab_dividas:
         with c_h5: st.markdown("<div class='header-tabela'>Entregue (MT)</div>", unsafe_allow_html=True)
         with c_h6: st.markdown("<div class='header-tabela'>Dívida</div>", unsafe_allow_html=True)
 
-        # Tabela com linhas divisórias
         for _, row in df_dividas.iterrows():
             c1, c2, c3, c4, c5, c6 = st.columns([1.5, 2, 1.2, 1.2, 1.2, 1.5])
             with c1: st.markdown(f"<span style='color:#475569; font-size:0.88rem;'>{row['supervisor']}</span>", unsafe_allow_html=True)
@@ -490,7 +488,7 @@ with tab_dividas:
             st.markdown("<div style='border-bottom: 1px solid #E2E8F0; margin: 4px 0;'></div>", unsafe_allow_html=True)
 
 # ------------------------------------------
-# ABA 2: OPERAÇÃO DE CAIXA (COM SEPARADORES)
+# ABA 2: OPERAÇÃO DE CAIXA
 # ------------------------------------------
 with tab_operacao:
     col_data, col_sup = st.columns([1, 2])
@@ -518,7 +516,6 @@ with tab_operacao:
     else:
         st.subheader(f"📋 Painel de Fecho de Caixa — {sup_selecionado_nome}")
         
-        # Cabeçalhos compactos
         if sup_id_selecionado == "TODOS":
             c_sup, c_ag, c_feito, c_ent, c_saldo, c_acao = st.columns([1.2, 1.8, 1.5, 1.5, 1.5, 1.5])
             with c_sup: st.markdown("<div class='header-tabela'>Supervisor</div>", unsafe_allow_html=True)
@@ -581,12 +578,10 @@ with tab_operacao:
                     st.toast(f"Caixa de {ag['utilizador']} salvo!", icon="🔒")
                     st.rerun()
 
-            # Linha divisória fina para cada agente
             st.markdown("<div style='border-bottom: 1px solid #E2E8F0; margin: 4px 0 8px 0;'></div>", unsafe_allow_html=True)
 
         st.divider()
 
-        # Resumos em cartões compactos
         st.subheader(f"📊 Resumo Geral do Diário ({sup_selecionado_nome})")
         tot_saldo = tot_entregue - tot_feito
         
@@ -603,7 +598,7 @@ with tab_operacao:
 # ABA 3: GESTÃO DE SUPERVISORES E AGENTES
 # ------------------------------------------
 with tab_gestao:
-    st.subheader("⚙️ Gestão de Rede")
+    st.subheader("⚙️ Gestão de Network")
     
     subtab_sup, subtab_ag = st.tabs(["📌 Supervisores", "👤 Agentes"])
     
@@ -716,5 +711,26 @@ with tab_gestao:
             st.info("Nenhum agente cadastrado.")
 
         st.divider()
+        
+        # LISTA GERAL DE AGENTES FORMATADA E ATUALIZADA
         st.write("📋 **Lista Geral de Agentes**")
-        st.dataframe(df_ag_todos[['id', 'nome', 'utilizador', 'supervisor_nome', 'estado']], use_container_width=True)
+        if not df_ag_todos.empty:
+            st.caption(f"Total de agentes ativos cadastrados: **{len(df_ag_todos)}**")
+            
+            # Formatando o DataFrame para exibição profissional
+            df_exibicao = df_ag_todos[['utilizador', 'nome', 'supervisor_nome', 'estado']].copy()
+            df_exibicao.columns = ['Código / Utilizador', 'Nome do Agente', 'Supervisor / Rota', 'Status']
+            
+            st.dataframe(
+                df_exibicao,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Código / Utilizador": st.column_config.TextColumn("Código / Utilizador", width="medium"),
+                    "Nome do Agente": st.column_config.TextColumn("Nome do Agente", width="large"),
+                    "Supervisor / Rota": st.column_config.TextColumn("Supervisor / Rota", width="medium"),
+                    "Status": st.column_config.TextColumn("Status", width="small")
+                }
+            )
+        else:
+            st.info("Nenhum agente cadastrado no momento.")
