@@ -11,14 +11,11 @@ st.set_page_config(page_title="Caixa de Esportes Bet77", layout="wide", page_ico
 
 st.markdown("""
     <style>
-    /* Estilo Geral da Aplicação */
     .stApp {
         background-color: #F8FAFC !important;
         color: #1E293B !important;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
-    
-    /* Títulos compactos e modernos */
     h1 {
         font-size: 1.6rem !important;
         color: #0F172A !important;
@@ -29,19 +26,11 @@ st.markdown("""
         color: #1E3A8A !important;
         font-weight: 600 !important;
     }
-    
-    /* Linha de Agente com divisor e efeito Hover */
     .linha-agente {
         padding: 8px 12px;
         border-bottom: 1px solid #E2E8F0;
         border-radius: 6px;
-        transition: background-color 0.15s ease-in-out;
     }
-    .linha-agente:hover {
-        background-color: #F1F5F9;
-    }
-
-    /* Rótulos e Texto dos Agentes */
     .nome-agente {
         font-size: 0.92rem !important;
         font-weight: 600;
@@ -61,8 +50,6 @@ st.markdown("""
         padding-bottom: 6px;
         margin-bottom: 6px;
     }
-
-    /* Cards de Resumo */
     .card-resumo {
         background-color: #FFFFFF;
         padding: 12px 16px;
@@ -82,8 +69,6 @@ st.markdown("""
         margin-bottom: 0;
         font-size: 1.25rem !important;
     }
-
-    /* Destaques de Valores */
     .valor-negativo {
         color: #DC2626 !important;
         font-weight: 700;
@@ -94,8 +79,6 @@ st.markdown("""
         font-weight: 700;
         font-size: 0.95rem !important;
     }
-
-    /* Campos de Entrada Compactos */
     div[data-baseweb="input"] {
         background-color: #FFFFFF !important;
         border-radius: 5px !important;
@@ -104,8 +87,6 @@ st.markdown("""
     input {
         font-size: 0.9rem !important;
     }
-
-    /* Botões */
     div.stButton > button {
         border-radius: 5px !important;
         font-weight: 600 !important;
@@ -113,8 +94,6 @@ st.markdown("""
         height: 38px !important;
         width: 100% !important;
     }
-    
-    /* Abas Superioras */
     button[data-baseweb="tab"] {
         font-size: 0.9rem !important;
         font-weight: 600 !important;
@@ -187,6 +166,8 @@ def init_db():
             valor_feito REAL DEFAULT 0.0,
             valor_entregue REAL DEFAULT 0.0,
             saldo REAL DEFAULT 0.0,
+            status_aceite INTEGER DEFAULT 0,
+            fechado_final INTEGER DEFAULT 0,
             data_registo TEXT NOT NULL,
             UNIQUE(data, utilizador)
         )
@@ -291,10 +272,42 @@ def carregar_agentes_por_supervisor(supervisor_id=None):
 def obter_fecho_existente(data_str, utilizador):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT valor_feito, valor_entregue, saldo FROM fecho_caixa WHERE data = ? AND utilizador = ?", (data_str, utilizador))
+    c.execute("SELECT valor_feito, valor_entregue, saldo, status_aceite, fechado_final FROM fecho_caixa WHERE data = ? AND utilizador = ?", (data_str, utilizador))
     res = c.fetchone()
     conn.close()
     return res
+
+def aceitar_valores_agente(data_str, utilizador, feito, entregue):
+    saldo = entregue - feito
+    data_registo = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO fecho_caixa (data, utilizador, valor_feito, valor_entregue, saldo, status_aceite, data_registo)
+        VALUES (?, ?, ?, ?, ?, 1, ?)
+        ON CONFLICT(data, utilizador) DO UPDATE SET
+            valor_feito = excluded.valor_feito,
+            valor_entregue = excluded.valor_entregue,
+            saldo = excluded.saldo,
+            status_aceite = 1,
+            data_registo = excluded.data_registo
+    ''', (data_str, utilizador, feito, entregue, saldo, data_registo))
+    conn.commit()
+    conn.close()
+
+def executar_fecho_final_dia(data_str, supervisor_id=None):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    if supervisor_id and supervisor_id != "TODOS":
+        c.execute("""
+            UPDATE fecho_caixa 
+            SET fechado_final = 1 
+            WHERE data = ? AND utilizador IN (SELECT utilizador FROM agentes WHERE supervisor_id = ?)
+        """, (data_str, supervisor_id))
+    else:
+        c.execute("UPDATE fecho_caixa SET fechado_final = 1 WHERE data = ?", (data_str,))
+    conn.commit()
+    conn.close()
 
 def obter_dividas_acumuladas(data_str=None, supervisor_id=None):
     conn = sqlite3.connect(DB_FILE)
@@ -329,23 +342,6 @@ def obter_dividas_acumuladas(data_str=None, supervisor_id=None):
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
     return df
-
-def salvar_fecho_caixa(data_str, utilizador, feito, entregue):
-    saldo = entregue - feito
-    data_registo = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''
-        INSERT INTO fecho_caixa (data, utilizador, valor_feito, valor_entregue, saldo, data_registo)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(data, utilizador) DO UPDATE SET
-            valor_feito = excluded.valor_feito,
-            valor_entregue = excluded.valor_entregue,
-            saldo = excluded.saldo,
-            data_registo = excluded.data_registo
-    ''', (data_str, utilizador, feito, entregue, saldo, data_registo))
-    conn.commit()
-    conn.close()
 
 # OPERAÇÕES CRUD
 def cadastrar_supervisor(nome):
@@ -488,7 +484,7 @@ with tab_dividas:
             st.markdown("<div style='border-bottom: 1px solid #E2E8F0; margin: 4px 0;'></div>", unsafe_allow_html=True)
 
 # ------------------------------------------
-# ABA 2: OPERAÇÃO DE CAIXA
+# ABA 2: OPERAÇÃO E FECHO DE CAIXA
 # ------------------------------------------
 with tab_operacao:
     col_data, col_sup = st.columns([1, 2])
@@ -514,7 +510,7 @@ with tab_operacao:
     if df_agentes.empty:
         st.info("Nenhum agente ativo encontrado.")
     else:
-        st.subheader(f"📋 Painel de Fecho de Caixa — {sup_selecionado_nome}")
+        st.subheader(f"📋 Painel de Recebimento de Caixa — {sup_selecionado_nome}")
         
         if sup_id_selecionado == "TODOS":
             c_sup, c_ag, c_feito, c_ent, c_saldo, c_acao = st.columns([1.2, 1.8, 1.5, 1.5, 1.5, 1.5])
@@ -526,7 +522,7 @@ with tab_operacao:
         with c_feito: st.markdown("<div class='header-tabela'>Feito (MT)</div>", unsafe_allow_html=True)
         with c_ent: st.markdown("<div class='header-tabela'>Entregue (MT)</div>", unsafe_allow_html=True)
         with c_saldo: st.markdown("<div class='header-tabela'>Saldo / Pendência</div>", unsafe_allow_html=True)
-        with c_acao: st.markdown("<div class='header-tabela'>Ação</div>", unsafe_allow_html=True)
+        with c_acao: st.markdown("<div class='header-tabela'>Aceitar Entrada</div>", unsafe_allow_html=True)
 
         tot_feito = 0.0
         tot_entregue = 0.0
@@ -535,7 +531,7 @@ with tab_operacao:
             fecho = obter_fecho_existente(data_str, ag['utilizador'])
             val_feito_ini = fecho[0] if fecho else 0.0
             val_ent_ini = fecho[1] if fecho else 0.0
-            ja_fechado = fecho is not None
+            ja_aceito = fecho[3] == 1 if fecho else False
 
             if sup_id_selecionado == "TODOS":
                 c_sup, c_ag, c_feito, c_ent, c_saldo, c_acao = st.columns([1.2, 1.8, 1.5, 1.5, 1.5, 1.5])
@@ -570,18 +566,19 @@ with tab_operacao:
                     st.markdown(f"<span class='valor-zero'>{saldo_linha:,.2f} MT</span>", unsafe_allow_html=True)
 
             with c_acao:
-                label_btn = "✅ Fechado" if ja_fechado else "🔒 Fechar"
-                tipo_btn = "secondary" if ja_fechado else "primary"
+                label_btn = "✅ Aceito" if ja_aceito else "📩 Aceitar Valores"
+                tipo_btn = "secondary" if ja_aceito else "primary"
                 
-                if st.button(label_btn, key=f"btn_{ag['id']}_{data_str}", type=tipo_btn):
-                    salvar_fecho_caixa(data_str, ag['utilizador'], v_feito, v_entregue)
-                    st.toast(f"Caixa de {ag['utilizador']} salvo!", icon="🔒")
+                if st.button(label_btn, key=f"btn_acc_{ag['id']}_{data_str}", type=tipo_btn):
+                    aceitar_valores_agente(data_str, ag['utilizador'], v_feito, v_entregue)
+                    st.toast(f"Valores de {ag['utilizador']} aceites!", icon="✅")
                     st.rerun()
 
             st.markdown("<div style='border-bottom: 1px solid #E2E8F0; margin: 4px 0 8px 0;'></div>", unsafe_allow_html=True)
 
         st.divider()
 
+        # Resumos e Botão do Fecho Geral do Dia
         st.subheader(f"📊 Resumo Geral do Diário ({sup_selecionado_nome})")
         tot_saldo = tot_entregue - tot_feito
         
@@ -593,6 +590,15 @@ with tab_operacao:
         with r3:
             cor_txt = "#DC2626" if tot_saldo < 0 else "#16A34A"
             st.markdown(f"<div class='card-resumo'><span>SALDO PENDENTE</span><h3 style='color:{cor_txt};'>{tot_saldo:,.2f} MT</h3></div>", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # ÁREA FINAL DE ENCERRAMENTO DO DIA
+        col_fecho_btn1, col_fecho_btn2, col_fecho_btn3 = st.columns([1, 2, 1])
+        with col_fecho_btn2:
+            if st.button("🔒 Executar Fecho Final do Dia", type="primary", use_container_width=True):
+                executar_fecho_final_dia(data_str, sup_id_selecionado)
+                st.success(f"🔒 Fecho de Caixa realizado com sucesso para o dia {data_operacao.strftime('%d/%m/%Y')}!")
 
 # ------------------------------------------
 # ABA 3: GESTÃO DE SUPERVISORES E AGENTES
@@ -712,12 +718,10 @@ with tab_gestao:
 
         st.divider()
         
-        # LISTA GERAL DE AGENTES FORMATADA E ATUALIZADA
         st.write("📋 **Lista Geral de Agentes**")
         if not df_ag_todos.empty:
             st.caption(f"Total de agentes ativos cadastrados: **{len(df_ag_todos)}**")
             
-            # Formatando o DataFrame para exibição profissional
             df_exibicao = df_ag_todos[['utilizador', 'nome', 'supervisor_nome', 'estado']].copy()
             df_exibicao.columns = ['Código / Utilizador', 'Nome do Agente', 'Supervisor / Rota', 'Status']
             
